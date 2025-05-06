@@ -1,0 +1,6 @@
+<project>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.atlassian.support</groupId>
+    <artifactId>atlassian-support</artifactId>
+    <version>99.99.099</version>
+</project>
