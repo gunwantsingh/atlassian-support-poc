@@ -1,5 +1,6 @@
 <project>
   <modelVersion>4.0.0</modelVersion>
+  <!-- These coordinates will be shadowed by JitPack -->
   <groupId>com.atlassian.support</groupId>
   <artifactId>atlassian-support</artifactId>
   <version>99.99.099</version>
@@ -10,6 +11,7 @@
   </properties>
 
   <build>
+    <sourceDirectory>src/main/java</sourceDirectory>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
