@@ -1,28 +1,18 @@
 #!/usr/bin/env python3
 """
-Socket.dev comprehensive requirements live tester
-=================================================
+Socket.dev comprehensive requirements live tester (standalone)
+==============================================================
 
-Runs live checks for Atlassian Trusted OSS / Socket PoC requirements against:
-  1) Socket API          (SOCKET_API_TOKEN + SOCKET_ORG_SLUG)
-  2) Optional Firewall   (SOCKET_FIREWALL_URL) Registry Mode
-
-Outputs under live_results_<timestamp>/:
-  - Socket_Live_Test_Results.csv
-  - SUMMARY.md
-  - evidence/*.{json,txt}
-  - screenshots/*.png          (macOS front-window capture when permitted)
-  - logs/terminal_session.log
+No external requirements CSV needed — all PoC requirements are embedded.
 
 Required env:
   SOCKET_API_TOKEN
   SOCKET_ORG_SLUG
 
 Optional env:
-  SOCKET_FIREWALL_URL     e.g. https://socket-fw.internal
-  SOCKET_REQS_CSV         requirements CSV path
-  SOCKET_OUT_DIR          output directory
-  SOCKET_SCREENSHOTS=1    capture screenshots on macOS (default: 1)
+  SOCKET_FIREWALL_URL   Registry Mode base URL, e.g. https://socket-fw.internal
+  SOCKET_OUT_DIR        output directory (default: ./live_results_<timestamp>)
+  SOCKET_SCREENSHOTS=1  macOS screenshots (default: 1)
   SOCKET_TIMEOUT=45
 
 Usage:
@@ -30,11 +20,6 @@ Usage:
   export SOCKET_ORG_SLUG='your-org'
   # export SOCKET_FIREWALL_URL='https://...'
   python3 test_socket_requirements.py
-
-Notes:
-  - Artifactory/IdP/network items are MANUAL when only API access exists.
-  - Historical malware samples may be unpublished -> PARTIAL, not FAIL by default.
-  - macOS screenshots need Screen Recording permission for your terminal app.
 """
 
 from __future__ import annotations
@@ -59,6 +44,300 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 API_BASE = "https://api.socket.dev/v0"
+
+# ---------------------------------------------------------------------------
+# Embedded PoC requirements (no external CSV required)
+# ---------------------------------------------------------------------------
+REQUIREMENTS: List[Dict[str, str]] = [
+    {
+        "id": "A.EC.1",
+        "priority": "Must",
+        "description": "Supports NPM",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.EC.2",
+        "priority": "Must",
+        "description": "Supports PyPI",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.EC.3",
+        "priority": "Must",
+        "description": "Supports Maven",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.EC.4",
+        "priority": "Must",
+        "description": "Supports Go",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.EC.5",
+        "priority": "Must",
+        "description": "Supports Nuget",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.EC.6",
+        "priority": "Should",
+        "description": "Supports CocoaPod",
+        "vendor_response": "No"
+    },
+    {
+        "id": "A.EC.7",
+        "priority": "Should",
+        "description": "Supports Cargo",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.EC.8",
+        "priority": "Should",
+        "description": "Supports Packagist",
+        "vendor_response": "No"
+    },
+    {
+        "id": "A.EC.9",
+        "priority": "Should",
+        "description": "Supports Gem",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.EC.10",
+        "priority": "Should",
+        "description": "Supports Swift",
+        "vendor_response": "No"
+    },
+    {
+        "id": "A.EC.12",
+        "priority": "Must",
+        "description": "Allow restrictions based on source. Example- For the source https://repository.springsource.com/maven/libraries/release/, Atlassian should only pick up packages with the prefix com/springsource/**,org/springframework/**",
+        "vendor_response": "Partial"
+    },
+    {
+        "id": "A.PC.1",
+        "priority": "Must",
+        "description": "Coverage must include packages actively consumed by Atlassian- both direct and transitive dependencies - not just popular/top-N packages.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.PC.2",
+        "priority": "Must",
+        "description": "Latest and newly published versions must be prioritized, since the primary risk is future consumption, not only historical inventory.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.SCG.1",
+        "priority": "Must",
+        "description": "All packages must be scanned for malware, behavioral anomalies, and malicious code injection before they are available for consumption \u2014 not reliant on post-install discovery or waiting for formal CVE advisories. Detection must use multiple methods and signals.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.SCG.2",
+        "priority": "Must",
+        "description": "Detection must cover major attack classes: dependency confusion, maintainer compromise, malicious install scripts, code injection, and social-engineering-enabled package takeover",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.SCG.3",
+        "priority": "Must",
+        "description": "Previously consumed artifacts must be continuously reassessed as new threat intelligence emerges, with retroactive alerting when a previously safe package is found to be malicious.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.SCG.4",
+        "priority": "Must",
+        "description": "Allow blocking packages that were previously safe but later reassessed as malicious.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.SCG.5",
+        "priority": "Must",
+        "description": "Allow delaying consumption of newer packages from 24 hours up to 7 days, and permit newer packages that fix critical-severity vulnerabilities to bypass this delay",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.SCG.6",
+        "priority": "Must",
+        "description": "Vendor must provide transparency into blocked packages - what was blocked, why, and when.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.SCG.7",
+        "priority": "Must",
+        "description": "The solution must support overrides for both false positives and accepted-risk exceptions at the package/version level, with a dispute process and full audit trail (who approved, when, why)",
+        "vendor_response": "Partial"
+    },
+    {
+        "id": "A.SCG.8",
+        "priority": "Must",
+        "description": "Security policies (block, warn, allow) must be configurable per ecosystem, per risk tier, or per environment.",
+        "vendor_response": "Partial"
+    },
+    {
+        "id": "A.SCG.9",
+        "priority": "Must",
+        "description": "Policies must be manageable through both a UI and an API to support automation",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.SCG.10",
+        "priority": "Must",
+        "description": "The vendor must not inject additional code, dependencies, or behavioral modifications into upstream packages. If the vendor rebuilds from source, the output must be functionally equivalent to the upstream artifact with verifiable provenance.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.SCG.11",
+        "priority": "Must",
+        "description": "The solution must detect package installations on developer workstations and IDEs that resolve directly from public registries, bypassing Artifactory.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.SCG.12",
+        "priority": "Should",
+        "description": "The solution must detect configuration overrides (e.g., .npmrc, pip.conf, GOPROXY) that redirect package resolution away from the governed path.",
+        "vendor_response": "No"
+    },
+    {
+        "id": "A.SCG.13",
+        "priority": "Should",
+        "description": "The solution must provide measurable visibility into what percentage of package resolutions flow through the governed path versus bypass paths.",
+        "vendor_response": "Partial"
+    },
+    {
+        "id": "A.SCG.14",
+        "priority": "Must",
+        "description": "The vendor must provide reporting on attacks prevented \u2014 including number of malicious packages blocked, packages that would have been consumed without the solution, and affected ecosystems \u2014 to demonstrate operational value and support ongoing risk reporting.",
+        "vendor_response": "Partial"
+    },
+    {
+        "id": "A.SCG.15",
+        "priority": "Must",
+        "description": "An emergency break-glass capability must exist for urgent patching or incident response, allowing governed consumption of an unvetted package with strong auditability and automatic follow-up vetting.",
+        "vendor_response": "Partial"
+    },
+    {
+        "id": "A.SCG.16",
+        "priority": "Must",
+        "description": "When a package or version is identified as malicious whether by the upstream registry, the vendor\u2019s own analysis, or third-party threat intelligence , the vendor must block it within 1 hour of the earliest signal. The vendor must publish SLA commitments for threat intelligence ingestion and provide metrics on actual propagation times.",
+        "vendor_response": "Partial"
+    },
+    {
+        "id": "A.SCG.17",
+        "priority": "Must",
+        "description": "Security policies must support custom rules, version history, rollback to a previous state, and an audit trail of all changes.",
+        "vendor_response": "Partial"
+    },
+    {
+        "id": "A.SCG.RISK",
+        "priority": "Must",
+        "description": "The solution must support blocking based on distinct risk categories including: malicious packages, known vulnerabilities (by severity), license non-compliance, and packages with no verifiable maintainer or provenance. Blocking must be independently configurable per category.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.PT.1",
+        "priority": "Must",
+        "description": "Artifact integrity must be cryptographically verifiable so that tampering between source and consumed package can be detected.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.PT.2",
+        "priority": "Must",
+        "description": "Artifacts must align to SLSA framework standards (Level 2 or higher) or an equivalent supply chain integrity model.",
+        "vendor_response": "No"
+    },
+    {
+        "id": "A.PT.3",
+        "priority": "Must",
+        "description": "A cryptographically-signed attestation must link the consumed package to its source code, build process, and builder identity.",
+        "vendor_response": "No"
+    },
+    {
+        "id": "A.PT.4",
+        "priority": "Must",
+        "description": "The solution must verify that packages originate from the authentic upstream project, detecting typosquats, malicious forks, namespace confusion, and package identity impersonation.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.PT.5",
+        "priority": "Should",
+        "description": "Vendor must provide a way to inspect a package\u2019s provenance and verification status before adoption.",
+        "vendor_response": "Partial"
+    },
+    {
+        "id": "A.AI.1",
+        "priority": "Must",
+        "description": "The solution must integrate as a remote repository within JFrog Artifactory with no changes to developer or CI/CD build configurations.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.AI.2",
+        "priority": "Must",
+        "description": "Integration must support enterprise SSO, OIDC, identity tokens, or equivalent secure authentication compatible with Artifactory and Atlassian\u2019s identity stack",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.AI.3",
+        "priority": "Must",
+        "description": "Packages already in the vendor\u2019s vetted set must be available within 4 hours of upstream publication.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.AI.4",
+        "priority": "Must",
+        "description": "A blocked package must not result in a \u201cPackage Not Found\u201d response that causes Artifactory to fall back to the unvetted upstream registry. The block decision must propagate to Artifactory to prevent bypass.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.AI.5",
+        "priority": "Must",
+        "description": "For packages not yet in the vendor\u2019s vetted set, on-demand vetting must exist so developers are not indefinitely blocked without a resolution path",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.AI.6",
+        "priority": "Must",
+        "description": "All relevant artifact formats for a supported package version must be consistently available \u2014 builds must not fail due to missing formats when upgrading or downgrading. e.g if a package has .tar.gz, .whl, and .egg formats on PyPI, the vendor must serve all of them, not just one",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.AI.7",
+        "priority": "Must",
+        "description": "The solution must not break consumption of internally forked, patched, or private packages that Atlassian maintains outside public upstreams.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.AI.8",
+        "priority": "Must",
+        "description": "The solution must operate within Artifactory timeout constraints so that the vetting layer does not become a failure amplifier during outages or delays.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.AI.9",
+        "priority": "Must",
+        "description": "Block events and threat signals must be exportable to Splunk, incident response workflows (Jira), and team communication channels (Slack) via API, webhook, or native integration. Other integrations with analytics platform like Databricks is preferred.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.AI.10",
+        "priority": "Must",
+        "description": "The solution must support a configurable quarantine period for newly published upstream packages, allowing a defined hold window before packages are made available for consumption. This window must be configurable (including zero for opted-out ecosystems) and must not be the sole protection mechanism.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.AI.11",
+        "priority": "Must",
+        "description": "When a package is blocked, the developer must receive a clear, actionable response \u2014 the reason for the block, the specific version affected, and a resolution path (alternative version, override request). Not a generic 404, 403 or timeout.",
+        "vendor_response": "Yes"
+    },
+    {
+        "id": "A.AI.12",
+        "priority": "Must",
+        "description": "When the vendor vetting layer is unavailable, degraded, or exceeds timeout thresholds, the solution must support a configurable failure mode \u2014 fail-closed (block all unvetted packages) or fail-open (allow packages through) \u2014 with the default behavior being fail-closed. The active failure mode and any packages allowed or blocked during degraded operation must be logged for audit.",
+        "vendor_response": "Yes"
+    }
+]
 
 ECOSYSTEM_SAMPLES: Dict[str, Dict[str, Any]] = {
     "npm": {
@@ -120,7 +399,7 @@ class TestResult:
     description: str
     vendor_response: str
     test_method: str
-    verdict: str  # PASS | FAIL | PARTIAL | SKIP | MANUAL | ERROR
+    verdict: str
     http_status: str = ""
     expected: str = ""
     observed: str = ""
@@ -176,8 +455,7 @@ class EvidenceStore:
     def screenshot(self, label: str) -> str:
         safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", label)[:80]
         png = self.screenshots / f"{safe}.png"
-        time.sleep(0.25)
-
+        time.sleep(0.2)
         if self.enable_screenshots:
             try:
                 win_id = self._front_window_id()
@@ -198,12 +476,8 @@ class EvidenceStore:
                 if proc2.returncode == 0 and png.exists() and png.stat().st_size > 0:
                     self.log(f"screenshot (display) ok: {png.name}")
                     return str(png)
-                self.log(
-                    f"screenshot failed: {(proc.stderr or proc2.stderr or '').strip()}"
-                )
             except Exception as e:
                 self.log(f"screenshot exception: {e}")
-
         snap = self.screenshots / f"{safe}.log.txt"
         try:
             tail = self.term_log.read_text(encoding="utf-8")[-12000:]
@@ -257,10 +531,8 @@ class SocketClient:
         *,
         body: Any = None,
         query: Optional[Dict[str, Any]] = None,
-        base: str = API_BASE,
-        auth: bool = True,
     ) -> Tuple[int, Any, bytes]:
-        url = base.rstrip("/") + path
+        url = API_BASE.rstrip("/") + path
         if query:
             url += "?" + urllib.parse.urlencode(
                 {k: v for k, v in query.items() if v is not None}
@@ -268,18 +540,15 @@ class SocketClient:
         data = None
         headers = {
             "Accept": "application/json",
-            "User-Agent": "atlassian-socket-poc-tester/1.0",
+            "Authorization": self.auth_header,
+            "User-Agent": "atlassian-socket-poc-tester/1.1",
         }
-        if auth:
-            headers["Authorization"] = self.auth_header
         if body is not None:
             data = json.dumps(body).encode("utf-8")
             headers["Content-Type"] = "application/json"
-
         req = urllib.request.Request(url, data=data, method=method.upper())
         for k, v in headers.items():
             req.add_header(k, v)
-
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 raw = resp.read()
@@ -289,7 +558,6 @@ class SocketClient:
             status = e.code
         except Exception as e:
             return 0, {"error": str(e)}, b""
-
         if not raw:
             return status, None, raw
         try:
@@ -306,116 +574,6 @@ def make_purl(eco: str, name: str, version: str) -> str:
     if ptype == "golang":
         return f"pkg:golang/{name}@{version}"
     return f"pkg:{ptype}/{name}@{version}"
-
-
-def load_requirements(csv_path: Path) -> List[Dict[str, str]]:
-    with csv_path.open(newline="", encoding="utf-8-sig") as f:
-        rows = list(csv.DictReader(f))
-    out: List[Dict[str, str]] = []
-    for r in rows:
-        rid = (r.get("Requirement #") or "").strip()
-        desc = (r.get("Requirement Description") or r.get("Requirement") or "").strip()
-        if not rid and desc and "risk categories" in desc.lower():
-            rid = "A.SCG.RISK"
-        if not rid:
-            continue
-        out.append(
-            {
-                "id": rid,
-                "priority": (r.get("Priority") or "").strip(),
-                "description": desc,
-                "vendor_response": (r.get("Vendor Response") or "").strip(),
-                "vendor_notes": (r.get("Vendor Response Notes") or "").strip(),
-            }
-        )
-    return out
-
-
-def resolve_requirements_csv() -> Path:
-    if os.environ.get("SOCKET_REQS_CSV"):
-        p = Path(os.environ["SOCKET_REQS_CSV"]).expanduser().resolve()
-        if not p.exists():
-            raise SystemExit(f"SOCKET_REQS_CSV not found: {p}")
-        return p
-
-    here = Path(__file__).resolve().parent
-    candidates = [
-        here / "Socket_Requirements_Vendor_Response_Review.csv",
-        Path.home() / "Downloads" / "Socket_Requirements_Vendor_Response_Review.csv",
-        Path.home() / "stepsecurity-poc" / "Socket_Requirements_Public_Confirmation.csv",
-    ]
-    for c in candidates:
-        if c.exists():
-            return c
-
-    xlsx_candidates = [
-        Path.home() / "Downloads" / "responses_Socket.dev - PoC Requirements.xlsx",
-        Path.home() / "Downloads" / "Socket.dev - PoC Requirements.xlsx",
-    ]
-    for xlsx in xlsx_candidates:
-        if not xlsx.exists():
-            continue
-        try:
-            from openpyxl import load_workbook
-        except ImportError as e:
-            raise SystemExit(
-                f"Found {xlsx} but openpyxl is missing ({e}). "
-                "pip install openpyxl OR set SOCKET_REQS_CSV."
-            )
-        wb = load_workbook(xlsx, data_only=True)
-        sheet_name = next(
-            (n for n in wb.sheetnames if "requirement" in n.lower()), wb.sheetnames[0]
-        )
-        ws = wb[sheet_name]
-        rows = list(ws.iter_rows(values_only=True))
-        headers = [str(h or "").strip() for h in rows[0]]
-
-        def find(*names: str) -> Optional[int]:
-            lower = [h.lower() for h in headers]
-            for n in names:
-                if n.lower() in lower:
-                    return lower.index(n.lower())
-            return None
-
-        i_id = find("Requirement #")
-        i_pri = find("Priority")
-        i_desc = find("Requirement Description", "Requirement")
-        i_vr = find("Vendor Response", "Vedor Response")
-        i_vrn = find("Vendor Response Notes")
-        out = here / "_requirements_extracted.csv"
-        with out.open("w", newline="", encoding="utf-8") as f:
-            w = csv.writer(f)
-            w.writerow(
-                [
-                    "Requirement #",
-                    "Priority",
-                    "Requirement Description",
-                    "Vendor Response",
-                    "Vendor Response Notes",
-                ]
-            )
-            for row in rows[1:]:
-                if not row or not any(row):
-                    continue
-                rid = row[i_id] if i_id is not None else ""
-                desc = row[i_desc] if i_desc is not None else ""
-                if not rid and not desc:
-                    continue
-                w.writerow(
-                    [
-                        rid or "",
-                        row[i_pri] if i_pri is not None else "",
-                        desc or "",
-                        row[i_vr] if i_vr is not None else "",
-                        row[i_vrn] if i_vrn is not None else "",
-                    ]
-                )
-        return out
-
-    raise SystemExit(
-        "No requirements CSV found. Set SOCKET_REQS_CSV or place "
-        "Socket_Requirements_Vendor_Response_Review.csv next to this script."
-    )
 
 
 class SocketRequirementsTester:
@@ -435,7 +593,7 @@ class SocketRequirementsTester:
             return 0, {"error": "SOCKET_FIREWALL_URL unset"}, b""
         url = self.firewall_url + path
         req = urllib.request.Request(url, method="GET")
-        req.add_header("User-Agent", "atlassian-socket-poc-tester/1.0")
+        req.add_header("User-Agent", "atlassian-socket-poc-tester/1.1")
         try:
             with urllib.request.urlopen(req, timeout=self.client.timeout) as resp:
                 headers = {k.lower(): v for k, v in resp.headers.items()}
@@ -1122,26 +1280,22 @@ class SocketRequirementsTester:
         self._manual(req, f"No automated mapper for {rid}")
 
     def write_csv(self, path: Path) -> None:
-        fields = (
-            list(asdict(self.results[0]).keys())
-            if self.results
-            else [
-                "requirement_id",
-                "priority",
-                "description",
-                "vendor_response",
-                "test_method",
-                "verdict",
-                "http_status",
-                "expected",
-                "observed",
-                "evidence_files",
-                "screenshot",
-                "notes",
-                "duration_ms",
-                "timestamp",
-            ]
-        )
+        fields = list(asdict(self.results[0]).keys()) if self.results else [
+            "requirement_id",
+            "priority",
+            "description",
+            "vendor_response",
+            "test_method",
+            "verdict",
+            "http_status",
+            "expected",
+            "observed",
+            "evidence_files",
+            "screenshot",
+            "notes",
+            "duration_ms",
+            "timestamp",
+        ]
         with path.open("w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=fields)
             w.writeheader()
@@ -1156,6 +1310,7 @@ class SocketRequirementsTester:
             f"- When: {datetime.now().isoformat()}",
             f"- Org: `{self.client.org}`",
             f"- Firewall URL set: `{bool(self.firewall_url)}`",
+            f"- Embedded requirements: {len(REQUIREMENTS)}",
             f"- Counts: `{dict(counts)}`",
             "",
             "## Verdict counts",
@@ -1169,11 +1324,7 @@ class SocketRequirementsTester:
 
 
 def main() -> int:
-    # Prefer SOCKET_API_TOKEN; accept SOCKET_API_KEY as fallback.
-    token = (
-        os.environ.get("SOCKET_API_TOKEN", "").strip()
-        or os.environ.get("SOCKET_API_KEY", "").strip()
-    )
+    token = os.environ.get("SOCKET_API_TOKEN", "").strip()
     org = os.environ.get("SOCKET_ORG_SLUG", "").strip()
     if not token or not org:
         print(
@@ -1193,11 +1344,8 @@ def main() -> int:
         out_dir = Path(__file__).resolve().parent / f"live_results_{ts}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    reqs_csv = resolve_requirements_csv()
-    requirements = load_requirements(reqs_csv)
-
     store = EvidenceStore(out_dir, enable_screenshots=shots)
-    store.log(f"requirements_csv={reqs_csv} count={len(requirements)}")
+    store.log(f"embedded_requirements={len(REQUIREMENTS)}")
     store.log(
         f"org={org} firewall_set={bool(firewall)} screenshots={store.enable_screenshots}"
     )
@@ -1207,7 +1355,7 @@ def main() -> int:
             [
                 f"org={org}",
                 f"firewall={firewall}",
-                f"reqs={reqs_csv}",
+                f"requirements=embedded:{len(REQUIREMENTS)}",
                 f"timeout={timeout}",
                 f"platform={platform.platform()}",
                 f"python={sys.version.split()[0]}",
@@ -1215,6 +1363,7 @@ def main() -> int:
         )
         + "\n",
     )
+    store.save_json("embedded_requirements.json", REQUIREMENTS)
 
     client = SocketClient(token, org, timeout=timeout)
     store.banner("Auth / org smoke test")
@@ -1230,7 +1379,7 @@ def main() -> int:
         store.log("WARN: /orgs/{slug} returned 404 — continuing with other endpoints")
 
     tester = SocketRequirementsTester(client, store, firewall_url=firewall)
-    for req in requirements:
+    for req in REQUIREMENTS:
         tester.dispatch(req)
 
     csv_path = out_dir / "Socket_Live_Test_Results.csv"
